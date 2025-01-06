@@ -20,24 +20,96 @@ struct AuthView: View {
     @ObservedObject private var viewModel = HootsuiteViewModel()
 
     var body: some View {
-        VStack {
-
-            if authVM.loggedIn {
-                Text("Status code: \(authVM.authToken)")
+        NavigationView(content: {
+            VStack(alignment: .center, spacing: 10, content: {
                 
-                Button("Fetch Schedule post", action: {
-                    viewModel.fetchScheduledPosts(authVM.authToken)
-                })
-                
-                List(viewModel.scheduledPosts, id: \.self) { post in
-                    Text(post)
-                }                
-            } else {
-                Button("Authenticate with Hootsuite") {
-                    viewModel.authenticate()
+                if authVM.loggedIn {
+                    List(content: {
+                        
+                        VStack(alignment: .leading, spacing: 10, content: {
+                            Text("Found")
+                            Text("Status code: \(authVM.authToken)")
+                        })
+                        
+                        VStack(alignment: .leading, spacing: 10, content: {
+                            Text("1.")
+                            
+                            Button("Apply Access Token", action: {
+                                self.viewModel.accessToken = authVM.authToken
+                                self.viewModel.service.accessToken = authVM.authToken
+                                print("Applied")
+                            })
+                        })
+                        
+                        VStack(alignment: .leading, spacing: 10, content: {
+                            Text("2.")
+                            
+                            Button("Fetch Organization", action: {
+                                Task {
+                                    await self.viewModel.fetchOrganization()
+                                }
+                            })
+                        })
+                        
+                        VStack(alignment: .leading, spacing: 10, content: {
+                            Text("3.")
+                            
+                            Button("Fetch Member", action: {
+                                self.viewModel.fetchMember()
+                            })
+                        })
+                        
+                        
+                        VStack(alignment: .leading, spacing: 10, content: {
+                            Text("4.")
+                            
+                            Button("Fetch Schedule post", action: {
+                                viewModel.fetchScheduledPosts()
+                            })
+                        })
+                        
+                        if !viewModel.scheduledPosts.isEmpty {
+                            Section("Posts", content: {
+                                ForEach(viewModel.scheduledPosts, id: \.self) { post in
+                                    Text(post)
+                                }
+                            })
+                        }
+                        
+                        Section("Post", content: {
+                            HootsuitePostView()
+                        })
+                        
+                    })
+                    
+                } else {
+                    Button("Authenticate with Hootsuite") {
+                        
+                        Task {
+                            do {
+                                if let token = try await viewModel.authenticate() {
+                                    DispatchQueue.main.async {
+                                        self.authVM.authToken = token
+                                        self.authVM.loggedIn = true
+                                    }
+                                }
+                            } catch {
+                                print("Error: \(error.localizedDescription)")
+                            }
+                        }
+                    }
                 }
-            }
-        }
+            })
+            .navigationTitle("Welcome")
+            
+            .toolbar(content: {
+                Button("Logout", action: {
+                    authVM.authToken = ""
+                    authVM.loggedIn = false
+                })
+            })
+        })
+       
     }
 }
 

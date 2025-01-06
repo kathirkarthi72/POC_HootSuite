@@ -12,12 +12,13 @@ struct HootsuitePostView: View {
     
     @ObservedObject private var viewModel = HootsuiteViewModel()
     @State private var isPhotoPickerPresented = false
-    
+    @EnvironmentObject var authVM: AuthVM
+
     var body: some View {
         
         VStack {
             
-            if let selectedImage = viewModel.selectedImage {
+         /*   if let selectedImage = viewModel.selectedImage {
                 Image(uiImage: selectedImage)
                     .resizable()
                     .scaledToFit()
@@ -29,7 +30,7 @@ struct HootsuitePostView: View {
                         isPhotoPickerPresented.toggle()
                     }
             } else {
-                Image(uiImage: UIImage(named: "AddPhoto")!)
+                Image(systemName: "person")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 200, height: 200)
@@ -40,15 +41,18 @@ struct HootsuitePostView: View {
                         isPhotoPickerPresented.toggle()
                     }
             }
-           
+           */
             TextField("Enter your post", text: $viewModel.post)
                 .padding()
                 .textFieldStyle(RoundedBorderTextFieldStyle())
             
             Button(action: {
-                viewModel.postAllSocialMedia()
+                viewModel.service.accessToken = authVM.authToken
+                Task {
+                    await viewModel.postAllSocialMedia()
+                }
             }, label: {
-                Text("Post to all social media")
+                Text("Post to X")
             })
             .buttonStyle(.borderedProminent)
         }

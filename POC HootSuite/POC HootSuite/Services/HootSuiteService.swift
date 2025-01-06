@@ -14,37 +14,34 @@ class HootsuiteService {
     private let clientId = Constants.clientId
     private let clientSecret = Constants.clientSecret
     var accessToken: String = ""
-    
-    @EnvironmentObject var auth: AuthVM
 
-    func authenticate(completion: @escaping (Bool) -> Void) {
+    func authenticate() async throws -> String? {
+        
         // Example: Fetch the access token
         let tokenURL = "\(baseURL)/oauth2/token"
         var request = URLRequest(url: URL(string: tokenURL)!)
         request.httpMethod = "POST"
+        
         let body = "grant_type=client_credentials&client_id=\(clientId)&client_secret=\(clientSecret)"
         request.httpBody = body.data(using: .utf8)
         request.addValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            guard let data = data, error == nil else {
-                completion(false)
-                return
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else { return nil }
+        if httpResponse.statusCode == 200, let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            print("Success. http Status: \(httpResponse.statusCode) Json: \(json)")
+            
+            if let token = json["access_token"] as? String {
+                return token
+            } else {
+                return nil
             }
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let token = json["access_token"] as? String {
-                    self.auth.authToken = token
-                    self.auth.loggedIn = true
-                    print("Access Token: \(self.auth.authToken)")
-                    completion(true)
-                } else {
-                    completion(false)
-                }
-            } catch {
-                completion(false)
-            }
-        }.resume()
+        } else {
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            print("Failed. http Status: \(httpResponse.statusCode) Json: \(json)")
+            return nil
+        }
     }
 
     func fetchScheduledPosts(completion: @escaping ([String]?) -> Void) {
@@ -70,7 +67,84 @@ class HootsuiteService {
             }
         }.resume()
     }
-
+    
+    func fetchOrganization() async throws -> Bool {
+        let organizationid = "CHANGEPOND, Siruseri, Chennai"
+//        organizations/:organizationId/teams
+        let url = "\(baseURL)/v1/organizations/:\(organizationid)/teams"
+        var request = URLRequest(url: URL(string: url)!)
+        request.httpMethod = "GET"
+        request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            print("json: \(json)")
+            
+            if let status = response as? HTTPURLResponse {
+                if status.statusCode == 200 {
+                    print("fetchOrganization. Success Code: \(status.statusCode)")
+                    return true
+                } else {
+                    print("fetchOrganization. Failure Code: \(status.statusCode)")
+                }
+            }
+            return false
+        } else {
+            print("json Could not found.")
+            return false
+        }
+        
+    }
+    
+    func fetchMember() async throws -> [String]? {
+        let url = "\(baseURL)/v1/me"
+        var request = URLRequest(url: URL(string: url)!)
+        request.httpMethod = "GET"
+        request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+//        self.validate(response: response, data: data) { result in
+//            if let result {
+//                return [result]
+//            } else {
+//                nil
+//            }
+//        }
+        
+        if let httpRes = response as? HTTPURLResponse {
+            print("Status code: \(httpRes.statusCode)")
+                            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    print(json)
+                    if let mediaId = json["id"] as? String {
+                        return [mediaId]
+                    } else {
+                        return nil
+                    }
+                     
+                } else {
+                    print("Error: failed.")
+                    return nil
+                }
+            } catch DecodingError.keyNotFound(let key, let error) {
+                print("Decoing error: \(key), \(error)")
+            }  catch DecodingError.dataCorrupted(let error) {
+                print("Decoing error: \(error)")
+            } catch DecodingError.valueNotFound(let key, let error) {
+                print("Decoing error: \(key), \(error)")
+            } catch DecodingError.typeMismatch(let key, let error) {
+                print("Decoing error: \(key), \(error)")
+            } catch {
+                print("Error: \(error.localizedDescription)")
+                return nil
+            }
+        }
+        
+        return nil
+    }
 
 
 // MARK: - Media Upload and Post Creation - Facebook
@@ -80,7 +154,7 @@ class HootsuiteService {
 //            print("Access token missed.")
 //            return }
         
-        let accessToken = auth.authToken
+        let accessToken = accessToken
 
         let url = URL(string: "https://platform.hootsuite.com/v1/media")!
         var request = URLRequest(url: url)
@@ -105,30 +179,59 @@ class HootsuiteService {
                 return
             }
             
-            if let httpRes = response as? HTTPURLResponse {
-                print("Status code: \(httpRes.statusCode)")
-                                
-                do {
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        let mediaId = json["id"] as? String
-                        completion(mediaId)
-                    } else {
-                        completion("Error: failed.")
-                    }
-                } catch DecodingError.keyNotFound(let key, let error) {
-                    print("Decoing error: \(key), \(error)")
-                }  catch DecodingError.dataCorrupted(let error) {
-                    print("Decoing error: \(error)")
-                } catch DecodingError.valueNotFound(let key, let error) {
-                    print("Decoing error: \(key), \(error)")
-                } catch DecodingError.typeMismatch(let key, let error) {
-                    print("Decoing error: \(key), \(error)")
-                } catch {
-                    print("Error: \(error.localizedDescription)")
-                    completion(nil)
-                }
-            }
+            self.validate(response: response, data: data, completion: completion)
+            
+//            if let httpRes = response as? HTTPURLResponse {
+//                print("Status code: \(httpRes.statusCode)")
+//                                
+//                do {
+//                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+//                        let mediaId = json["id"] as? String
+//                        completion(mediaId)
+//                    } else {
+//                        completion("Error: failed.")
+//                    }
+//                } catch DecodingError.keyNotFound(let key, let error) {
+//                    print("Decoing error: \(key), \(error)")
+//                }  catch DecodingError.dataCorrupted(let error) {
+//                    print("Decoing error: \(error)")
+//                } catch DecodingError.valueNotFound(let key, let error) {
+//                    print("Decoing error: \(key), \(error)")
+//                } catch DecodingError.typeMismatch(let key, let error) {
+//                    print("Decoing error: \(key), \(error)")
+//                } catch {
+//                    print("Error: \(error.localizedDescription)")
+//                    completion(nil)
+//                }
+//            }
         }.resume()
+    }
+    
+    func validate(response: URLResponse?, data: Data, completion: @escaping (String?) -> Void) {
+        if let httpRes = response as? HTTPURLResponse {
+            print("Status code: \(httpRes.statusCode)")
+                            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    print(json)
+                    let mediaId = json["id"] as? String
+                    completion(mediaId)
+                } else {
+                    completion("Error: failed.")
+                }
+            } catch DecodingError.keyNotFound(let key, let error) {
+                print("Decoing error: \(key), \(error)")
+            }  catch DecodingError.dataCorrupted(let error) {
+                print("Decoing error: \(error)")
+            } catch DecodingError.valueNotFound(let key, let error) {
+                print("Decoing error: \(key), \(error)")
+            } catch DecodingError.typeMismatch(let key, let error) {
+                print("Decoing error: \(key), \(error)")
+            } catch {
+                print("Error: \(error.localizedDescription)")
+                completion(nil)
+            }
+        }
     }
     
     func createPost(accessToken: String? = nil, text: String, mediaId: String = "", facebookProfileId: String, completion: @escaping (Bool) -> Void) {
@@ -211,9 +314,9 @@ extension HootsuiteService {
     }
 */
     
-    func createPost(text: String, mediaId: String, twitterProfileId: String, completion: @escaping (Bool) -> Void) {
-        let accessToken = auth.authToken
-        
+    func createPost(text: String, mediaId: String, twitterProfileId: String) async throws -> Bool {
+        let accessToken = accessToken
+        print("Access Token: \(accessToken)")
         let url = URL(string: "https://platform.hootsuite.com/v1/messages")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -228,13 +331,39 @@ extension HootsuiteService {
         
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                completion(true)
-            } else {
-                completion(false)
+        
+        let result = try await startPostTask(request: request)
+        
+        return result
+        
+//        URLSession.shared.dataTask(with: request) { data, response, error in
+//            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+//                completion(true)
+//            } else {
+//                completion(false)
+//            }
+//        }.resume()
+    }
+    
+    func startPostTask(request: URLRequest) async throws -> Bool {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            print("json: \(json)")
+            
+            if let status = response as? HTTPURLResponse {
+                if status.statusCode == 200 {
+                    print("startPostTask. Success Code: \(status.statusCode)")
+                    return true
+                } else {
+                    print("startPostTask. Failure Code: \(status.statusCode)")
+                }
             }
-        }.resume()
+            return false
+        } else {
+            print("json Could not found.")
+            return false
+        }
     }
 
 }
@@ -278,7 +407,7 @@ extension HootsuiteService {
     */
     
     func createPost(text: String, mediaId: String, linkedInProfileId: String, completion: @escaping (Bool) -> Void) {
-        let accessToken = auth.authToken
+        let accessToken = accessToken
         let url = URL(string: "https://platform.hootsuite.com/v1/messages")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -344,7 +473,7 @@ extension HootsuiteService {
     
     func createPost(text: String, mediaId: String, instagramProfileId: String, completion: @escaping (Bool) -> Void) {
         
-        let accessToken = auth.authToken
+        let accessToken = accessToken
         let url = URL(string: "https://platform.hootsuite.com/v1/messages")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -375,7 +504,7 @@ extension HootsuiteService {
 extension HootsuiteService {
     
     func createPost(text: String, mediaId: String, allSocialMediaProfileIds: [String] = Constants.allSocialMediaProfileId, completion: @escaping (Bool) -> Void) {
-        let accessToken = auth.authToken
+        let accessToken = accessToken
         let url = URL(string: "https://platform.hootsuite.com/v1/messages")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

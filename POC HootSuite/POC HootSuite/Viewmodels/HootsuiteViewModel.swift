@@ -17,25 +17,46 @@ class HootsuiteViewModel: ObservableObject {
     
     let service = HootsuiteService()
     
-    private var accessToken: String = ""
+    var accessToken: String = ""
     
-    func authenticate() {
-        service.authenticate { success in
-            DispatchQueue.main.async {
-                print("logged in")
-                //                self.isAuthenticated = success
-            }
-        }
+    func authenticate() async throws -> String? {
+        try await service.authenticate()
     }
     
-    func fetchScheduledPosts(_ token: String) {
-        self.accessToken = token
-        self.service.accessToken = token
-        
+    func fetchScheduledPosts() {        
         service.fetchScheduledPosts { posts in
             DispatchQueue.main.async {
                 self.scheduledPosts = posts ?? []
             }
+        }
+    }
+    
+    func fetchMember() {
+        print("fetch member")
+        
+        Task {
+            do {
+                let members = try await self.service.fetchMember()
+                print(members ?? [])
+            } catch {
+                print("Error: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func fetchOrganization() async {
+        print("Fetch Organization")
+        
+        do {
+            let success = try await self.service.fetchOrganization()
+            
+            if success {
+                print("Organization fetched successfully!")
+            } else {
+                print("Failed to get Organizationt")
+            }
+        } catch {
+            print("Error: on Organization.")
         }
     }
     
@@ -79,7 +100,7 @@ class HootsuiteViewModel: ObservableObject {
             }
         }
     }
-    
+    /*
     func postTwitter() {
         let imageData = UIImage(named: "yourImageName")!.jpegData(compressionQuality: 0.8)!
 
@@ -104,6 +125,20 @@ class HootsuiteViewModel: ObservableObject {
             }
         }
 
+    }
+    */
+    func postTextInTwitter() async {
+        do {
+            let success = try await self.service.createPost(text: "Check out text on Twitter!", mediaId: "", twitterProfileId: Constants.twitterProfileId)
+            
+            if success {
+                print("Post created successfully!")
+            } else {
+                print("Failed to create post")
+            }
+        } catch {
+            print("Error: on Posting to X.")
+        }
     }
     
     func postLinkedIn() {
@@ -158,11 +193,13 @@ class HootsuiteViewModel: ObservableObject {
         
     }
     
-    func postAllSocialMedia() {
-        createFBpost()
+    func postAllSocialMedia() async {
+//        createFBpost()
 //        postFB()
-//        postTwitter()
+        
 //        postLinkedIn()
 //        postInstagram()
+        
+        await postTextInTwitter()
     }
 }
